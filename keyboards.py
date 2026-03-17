@@ -39,8 +39,8 @@ def admin_menu() -> ReplyKeyboardMarkup:
         KeyboardButton(text="✉️ Foydalanuvchiga yozish", style="success")
     )
     kb.row(
-        KeyboardButton(text="🔗 Linkimni olish", style="primary")
-        KeyboardButton(text="👥 Achkolarim", style="success"),
+        KeyboardButton(text="🔗 Linkimni olish", style="primary"),
+        KeyboardButton(text="👥 Achkolarim", style="success")
     )
     return kb.as_markup(resize_keyboard=True)
 
