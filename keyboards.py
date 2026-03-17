@@ -36,6 +36,9 @@ def admin_menu() -> ReplyKeyboardMarkup:
     )
     kb.row(
         KeyboardButton(text="🚫 Ban"),
+        KeyboardButton(text="✉️ Foydalanuvchiga yozish")
+    )
+    kb.row(
         KeyboardButton(text="🔗 Linkimni olish")
     )
     kb.row(
