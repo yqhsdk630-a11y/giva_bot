@@ -60,10 +60,10 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
 
     # Routerlarni qo'shish (tartib muhim!)
-    dp.include_router(admin.router)    # admin avval (filter bor)
+    dp.include_router(admin.router)    # admin avval
     dp.include_router(member.router)   # guruh eventlari
-    dp.include_router(support.router)  # support
     dp.include_router(user.router)     # foydalanuvchi
+    dp.include_router(support.router)  # support oxirida
 
     # Scheduler ishga tushirish
     scheduler = setup_scheduler(bot)
