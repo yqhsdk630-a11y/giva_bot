@@ -5,9 +5,9 @@
 BOT_TOKEN = "8758446528:AAHF1AahPEE4xtH3p_Dwz9x1gbA4XIiuvZU"  # @BotFather dan oling
 
 GROUP_ID = -1003371929345
-CHANNEL_ID = -1001234567891        # kanal ID ni to'ldiring
+CHANNEL_ID = -1001599134202        # kanal ID ni to'ldiring
 CHANNEL_URL = "https://t.me/Azikwww2022"
-CHECK_CHANNEL = False
+CHECK_CHANNEL = True
 
 ADMIN_IDS = [7201215484, 5845294124]
 
