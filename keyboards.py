@@ -27,8 +27,8 @@ def admin_menu() -> ReplyKeyboardMarkup:
         KeyboardButton(text="⛔ Tugatish", style="danger")
     )
     kb.row(
-        KeyboardButton(text="📢 Reklama"),
-        KeyboardButton(text="📈 Admin statistika", style="danger")
+        KeyboardButton(text="📢 Reklama", style="primary"),
+        KeyboardButton(text="📈 Admin statistika", style="primary")
     )
     kb.row(
         KeyboardButton(text="🏆 G'oliblar", style="success"),
@@ -40,8 +40,6 @@ def admin_menu() -> ReplyKeyboardMarkup:
     )
     kb.row(
         KeyboardButton(text="🔗 Linkimni olish", style="primary")
-    )
-    kb.row(
         KeyboardButton(text="👥 Achkolarim", style="success"),
     )
     return kb.as_markup(resize_keyboard=True)
