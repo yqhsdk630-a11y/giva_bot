@@ -4,55 +4,45 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
+
 # ─── FOYDALANUVCHI MENU ──────────────────────────────────────
 
-def user_menu(lang: str = 'uz') -> ReplyKeyboardMarkup:
-    uz = {
-        'stats':   '📊 Statistika',
-        'link':    '🔗 Linkimni olish',
-        'invites': '👥 Achkolarim',
-        'top':     '🏆 Top 10',
-        'give':    '🎁 Bal berish',
-        'support': '📞 Admin bilan bog\'lanish',
-        'lang':    '🌐 Til',
-    }
-    ru = {
-        'stats':   '📊 Статистика',
-        'link':    '🔗 Получить ссылку',
-        'invites': '👥 Мои рефералы',
-        'top':     '🏆 Топ 10',
-        'give':    '🎁 Передать баллы',
-        'support': '📞 Связаться с админом',
-        'lang':    '🌐 Язык',
-    }
-    t = uz if lang == 'uz' else ru
+def user_menu() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardBuilder()
-    kb.row(KeyboardButton(text=t['stats']), KeyboardButton(text=t['link']))
-    kb.row(KeyboardButton(text=t['invites']), KeyboardButton(text=t['top']))
-    kb.row(KeyboardButton(text=t['give']), KeyboardButton(text=t['support']))
-    kb.row(KeyboardButton(text=t['lang']))
+    kb.row(
+        KeyboardButton(text="🔗 Linkimni olish"),
+        KeyboardButton(text="👥 Achkolarim")
+    )
+    kb.row(
+        KeyboardButton(text="🎁 Bal berish"),
+        KeyboardButton(text="📞 Admin bilan bog'lanish")
+    )
     return kb.as_markup(resize_keyboard=True)
 
 
 def admin_menu() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardBuilder()
-    kb.row(KeyboardButton(text='🚀 Give Away boshlash'), KeyboardButton(text='⛔ Tugatish'))
-    kb.row(KeyboardButton(text='📢 Reklama'), KeyboardButton(text='📈 Admin statistika'))
-    kb.row(KeyboardButton(text='🏆 G\'oliblar'), KeyboardButton(text='✉️ Foydalanuvchiga yozish'))
-    kb.row(KeyboardButton(text='💾 Backup olish'), KeyboardButton(text='🚫 Ban'))
-    kb.row(KeyboardButton(text='📊 Statistika'), KeyboardButton(text='🔗 Linkimni olish'))
-    kb.row(KeyboardButton(text='👥 Achkolarim'), KeyboardButton(text='🏅 Top 10'))
+    kb.row(
+        KeyboardButton(text="🚀 Give Away boshlash"),
+        KeyboardButton(text="⛔ Tugatish")
+    )
+    kb.row(
+        KeyboardButton(text="📢 Reklama"),
+        KeyboardButton(text="📈 Admin statistika")
+    )
+    kb.row(
+        KeyboardButton(text="🏆 G'oliblar"),
+        KeyboardButton(text="💾 Backup olish")
+    )
+    kb.row(
+        KeyboardButton(text="🚫 Ban"),
+        KeyboardButton(text="🔗 Linkimni olish")
+    )
+    kb.row(
+        KeyboardButton(text="👥 Achkolarim"),
+        KeyboardButton(text="📞 Admin bilan bog'lanish")
+    )
     return kb.as_markup(resize_keyboard=True)
-
-
-# ─── TIL TANLASH ─────────────────────────────────────────────
-
-def lang_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🇺🇿 O'zbek", callback_data="lang:uz")
-    kb.button(text="🇷🇺 Русский", callback_data="lang:ru")
-    kb.adjust(2)
-    return kb.as_markup()
 
 
 # ─── A'ZOLIK TEKSHIRUV ───────────────────────────────────────
@@ -69,12 +59,10 @@ def join_keyboard(group_url: str, channel_url: str = None) -> InlineKeyboardMark
 
 # ─── TASDIQLASH ──────────────────────────────────────────────
 
-def confirm_keyboard(action: str, lang: str = 'uz') -> InlineKeyboardMarkup:
-    yes = "✅ Tasdiqlash" if lang == 'uz' else "✅ Подтвердить"
-    no = "❌ Bekor qilish" if lang == 'uz' else "❌ Отмена"
+def confirm_keyboard(action: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=yes, callback_data=f"confirm:{action}")
-    kb.button(text=no, callback_data="cancel")
+    kb.button(text="✅ Tasdiqlash", callback_data=f"confirm:{action}")
+    kb.button(text="❌ Bekor qilish", callback_data="cancel")
     kb.adjust(2)
     return kb.as_markup()
 
@@ -102,10 +90,10 @@ def pagination_keyboard(current: int, total_pages: int, prefix: str) -> InlineKe
 
 # ─── TRANSFER ────────────────────────────────────────────────
 
-def transfer_confirm(to_name: str, count: int, lang: str = 'uz') -> InlineKeyboardMarkup:
+def transfer_confirm(to_name: str, count: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(
-        text=f"✅ Ha, {to_name}ga {count} ta ball beraman",
+        text=f"✅ Ha, {count} ta ball beraman",
         callback_data="confirm:transfer"
     )
     kb.button(text="❌ Bekor", callback_data="cancel")

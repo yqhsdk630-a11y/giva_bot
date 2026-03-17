@@ -484,3 +484,47 @@ async def export_all_data():
         """) as c:
             referrals = await c.fetchall()
     return users, referrals
+
+
+# ─── SUPPORT MODE ────────────────────────────────────────────
+
+async def set_support_mode(user_id: int, mode: bool):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            "UPDATE users SET lang=? WHERE user_id=?",
+            ('support' if mode else 'uz', user_id)
+        )
+        await db.commit()
+
+
+async def get_support_mode(user_id: int) -> bool:
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute(
+            "SELECT lang FROM users WHERE user_id=?", (user_id,)
+        ) as c:
+            row = await c.fetchone()
+    return row and row[0] == 'support'
+
+
+async def save_ticket(user_id: int, message_id: int, admin_msg_id: int, admin_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO support_tickets (user_id, message_id, admin_msg_id) VALUES (?,?,?)",
+            (user_id, message_id, admin_msg_id)
+        )
+        await db.commit()
+
+
+async def revoke_all_invite_links(bot, group_id: int):
+    """Give away tugagach barcha invite linklarni o'chirish"""
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute("SELECT user_id, link FROM invite_links") as c:
+            links = await c.fetchall()
+    for user_id, link in links:
+        try:
+            await bot.revoke_chat_invite_link(group_id, link)
+        except Exception:
+            pass
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute("DELETE FROM invite_links")
+        await db.commit()
