@@ -35,6 +35,11 @@ class BroadcastState(StatesGroup):
     waiting_text = State()
 
 
+class WriteUserState(StatesGroup):
+    waiting_user_id = State()
+    waiting_text = State()
+
+
 class BanState(StatesGroup):
     waiting_user = State()
 
@@ -194,6 +199,7 @@ async def confirm_end_giveaway(callback: CallbackQuery, bot: Bot):
 async def announce_winners(bot: Bot):
     """Asosiy g'oliblarni aniqlash va e'lon qilish"""
     await db.finish_giveaway()
+    await db.revoke_all_invite_links(bot, GROUP_ID)
 
     won_ids = []
 
@@ -301,6 +307,10 @@ async def broadcast_start(message: Message, state: FSMContext):
 
 @router.message(BroadcastState.waiting_text)
 async def broadcast_send(message: Message, state: FSMContext, bot: Bot):
+    if message.text and message.text.strip() == "/cancel":
+        await state.clear()
+        await message.answer("❌ Reklama bekor qilindi.")
+        return
     await state.clear()
     users = await db.get_all_active_users()
     success = 0
@@ -422,6 +432,82 @@ async def send_backup(bot: Bot, chat_id: int = None):
             )
         except Exception as e:
             logger.error(f"Backup yuborib bo'lmadi {admin_id}: {e}")
+
+
+# ─── FOYDALANUVCHIGA YOZISH ─────────────────────────────────
+
+@router.message(F.text == "✉️ Foydalanuvchiga yozish")
+async def write_user_start(message: Message, state: FSMContext):
+    await state.set_state(WriteUserState.waiting_user_id)
+    await message.answer(
+        "👤 Kimga yozmoqchisiz?\n"
+        "Username yoki ID yuboring:\n\n"
+        "Misol: <code>@username</code> yoki <code>123456789</code>\n\n"
+        "Bekor qilish: /cancel",
+        parse_mode="HTML"
+    )
+
+
+@router.message(WriteUserState.waiting_user_id)
+async def write_user_get_id(message: Message, state: FSMContext):
+    if message.text and message.text.strip() == "/cancel":
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.")
+        return
+
+    text = message.text.strip().lstrip("@")
+    import aiosqlite
+    from config import DB_FILE
+    target = None
+    async with aiosqlite.connect(DB_FILE) as conn:
+        if text.lstrip("-").isdigit():
+            async with conn.execute(
+                "SELECT user_id, full_name, username FROM users WHERE user_id=?", (int(text),)
+            ) as c:
+                row = await c.fetchone()
+        else:
+            async with conn.execute(
+                "SELECT user_id, full_name, username FROM users WHERE username=?", (text,)
+            ) as c:
+                row = await c.fetchone()
+    if row:
+        target = {"user_id": row[0], "full_name": row[1], "username": row[2]}
+
+    if not target:
+        await message.answer("❌ Foydalanuvchi topilmadi. Qaytadan kiriting yoki /cancel")
+        return
+
+    uname = f"@{target['username']}" if target["username"] else "username yoq"
+    await state.update_data(target_id=target["user_id"], target_name=target["full_name"])
+    await state.set_state(WriteUserState.waiting_text)
+    await message.answer(
+        f"✅ Topildi: <b>{target['full_name']}</b> ({uname})\n\n"
+        f"Endi xabaringizni yozing (matn, rasm, video):\n\n"
+        f"Bekor qilish: /cancel",
+        parse_mode="HTML"
+    )
+
+
+@router.message(WriteUserState.waiting_text)
+async def write_user_send(message: Message, state: FSMContext, bot: Bot):
+    if message.text and message.text.strip() == "/cancel":
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.")
+        return
+
+    data = await state.get_data()
+    target_id = data.get("target_id")
+    target_name = data.get("target_name")
+    await state.clear()
+
+    try:
+        await message.copy_to(target_id)
+        await message.answer(
+            f"✅ Xabar <b>{target_name}</b> ga yuborildi!",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Yuborib bolmadi: {e}")
 
 
 # ─── BAN ─────────────────────────────────────────────────────
