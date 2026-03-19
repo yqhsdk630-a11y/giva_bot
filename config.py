@@ -9,7 +9,7 @@ CHANNEL_ID = -1001599134202        # kanal ID ni to'ldiring
 CHANNEL_URL = "https://t.me/Azikwww2022"
 CHECK_CHANNEL = True
 
-ADMIN_IDS = [7201215484, 5845294124]
+ADMIN_IDS = [7201215484, 8448293504]
 
 DB_FILE = "/data/giveaway.db"
 BOT_USERNAME = "give_mebot"
