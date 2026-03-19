@@ -25,6 +25,11 @@ router = Router()
 router.message.filter(IsAdmin())
 
 
+class BalState(StatesGroup):
+    waiting_user = State()
+    waiting_amount = State()
+
+
 class GiveawaySetup(StatesGroup):
     start_time = State()
     end_time = State()
@@ -55,7 +60,7 @@ async def start_giveaway_cmd(message: Message, state: FSMContext):
     await state.set_state(GiveawaySetup.start_time)
     await message.answer(
         "📅 <b>Give away boshlanish vaqtini kiriting:</b>\n\n"
-        "Format: <code>25.01.2025 20:00</code>\n"
+        "Format: <code>21.03.2026 20:00</code>\n"
         "⏰ Toshkent vaqti (UTC+5) da kiriting",
         parse_mode='HTML'
     )
@@ -69,14 +74,14 @@ async def gw_get_start(message: Message, state: FSMContext):
         await state.set_state(GiveawaySetup.end_time)
         await message.answer(
             "📅 <b>Tugash vaqtini kiriting:</b>\n\n"
-            "Format: <code>02.02.2025 20:00</code>\n"
+            "Format: <code>01.04.2026 20:00</code>\n"
             "⚠️ Kamida 1 kun, ko'pi bilan 60 kun bo'lishi kerak",
             parse_mode='HTML'
         )
     except ValueError:
         await message.answer(
             "❌ Format noto'g'ri!\n"
-            "To'g'ri misol: <code>25.01.2025 20:00</code>",
+            "To'g'ri misol: <code>21.03.2026 20:00</code>",
             parse_mode='HTML'
         )
 
@@ -236,7 +241,7 @@ async def announce_winners(bot: Bot):
         await db.save_winner(uid, 'global_random')
         won_ids.append(uid)
     else:
-        global_text.append("Hech kim shart bajarмadi")
+        global_text.append("Hech kim shart bajarmadi")
 
     full_text = (
         "".join(top_text) +
@@ -558,3 +563,304 @@ async def ban_user(message: Message, state: FSMContext):
 async def cancel_admin(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Bekor qilindi.")
+
+
+# ─── BAL BOSHQARUV ───────────────────────────────────────────
+
+@router.message(F.text == "⚖️ Bal boshqaruv")
+async def bal_menu(message: Message):
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔴 Barchanikini 0 ga tushirish", callback_data="bal:reset_all")
+    kb.button(text="➕ Biriga bal qo'shish", callback_data="bal:add")
+    kb.button(text="➖ Biriga bal ayirish", callback_data="bal:subtract")
+    kb.adjust(1)
+    await message.answer("⚖️ <b>Bal boshqaruv:</b>", parse_mode="HTML", reply_markup=kb.as_markup())
+
+
+@router.callback_query(F.data == "bal:reset_all")
+async def bal_reset_confirm(callback: CallbackQuery):
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔴 Ha, barchanikini 0 ga tushir", callback_data="bal:confirm_reset")
+    kb.button(text="❌ Bekor", callback_data="cancel")
+    kb.adjust(1)
+    await callback.message.edit_text(
+        "⚠️ <b>Ishonchingiz komilmi?</b>\n\n"
+        "Barcha foydalanuvchilarning ballari 0 ga tushiriladi!\n"
+        "Bu amalni qaytarib bo'lmaydi!",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup()
+    )
+
+
+@router.callback_query(F.data == "bal:confirm_reset")
+async def bal_reset_all(callback: CallbackQuery):
+    async with __import__('aiosqlite').connect(__import__('config').DB_FILE) as db:
+        await db.execute("DELETE FROM referrals")
+        await db.execute("UPDATE users SET transfer_done=0")
+        await db.commit()
+    await callback.message.edit_text(
+        "✅ Barcha ballar 0 ga tushirildi!\n"
+        "Transfer imkoniyatlari ham yangilandi."
+    )
+
+
+@router.callback_query(F.data.in_(["bal:add", "bal:subtract"]))
+async def bal_change_start(callback: CallbackQuery, state: FSMContext):
+    action = "qo'shish" if callback.data == "bal:add" else "ayirish"
+    await state.set_state(BalState.waiting_user)
+    await state.update_data(action=callback.data)
+    await callback.message.edit_text(
+        f"👤 Kimning baliga {action} xohlaysiz?\n"
+        f"Username yoki ID yuboring:\n\n"
+        f"Misol: <code>@username</code>",
+        parse_mode="HTML"
+    )
+
+
+@router.message(BalState.waiting_user)
+async def bal_get_user(message: Message, state: FSMContext):
+    if message.text.strip() == "/cancel":
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.")
+        return
+
+    text = message.text.strip().lstrip("@")
+    import aiosqlite
+    from config import DB_FILE
+    target = None
+    async with aiosqlite.connect(DB_FILE) as conn:
+        if text.lstrip("-").isdigit():
+            async with conn.execute(
+                "SELECT user_id, full_name FROM users WHERE user_id=?", (int(text),)
+            ) as c:
+                row = await c.fetchone()
+        else:
+            async with conn.execute(
+                "SELECT user_id, full_name FROM users WHERE username=?", (text,)
+            ) as c:
+                row = await c.fetchone()
+
+    if row:
+        target = {"user_id": row[0], "full_name": row[1]}
+
+    if not target:
+        await message.answer("❌ Topilmadi. Qaytadan kiriting yoki /cancel")
+        return
+
+    data = await state.get_data()
+    action = data.get("action")
+    await state.update_data(target_id=target["user_id"], target_name=target["full_name"])
+    await state.set_state(BalState.waiting_amount)
+
+    ref_count = await db.get_referral_count(target["user_id"])
+    action_text = "qo'shmoqchisiz" if action == "bal:add" else "ayirmoqchisiz"
+    await message.answer(
+        f"👤 <b>{target['full_name']}</b>\n"
+        f"💰 Hozirgi bali: <b>{ref_count} ta</b>\n\n"
+        f"Nechta bal {action_text}?\n"
+        f"Raqam yuboring:",
+        parse_mode="HTML"
+    )
+
+
+@router.message(BalState.waiting_amount)
+async def bal_apply(message: Message, state: FSMContext, bot: Bot):
+    if message.text.strip() == "/cancel":
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.")
+        return
+
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Faqat raqam kiriting!")
+        return
+
+    amount = int(message.text.strip())
+    data = await state.get_data()
+    action = data.get("action")
+    target_id = data.get("target_id")
+    target_name = data.get("target_name")
+    await state.clear()
+
+    import aiosqlite
+    from config import DB_FILE
+
+    if action == "bal:add":
+        # Soxta referral qo'shamiz (admin ID dan)
+        async with aiosqlite.connect(DB_FILE) as conn:
+            for i in range(amount):
+                try:
+                    fake_id = -(target_id * 1000 + i)
+                    await conn.execute(
+                        "INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?,?)",
+                        (target_id, fake_id)
+                    )
+                except Exception:
+                    pass
+            await conn.commit()
+        action_text = f"+{amount} ta bal qo'shildi"
+    else:
+        # Referrallardan ayiramiz
+        async with aiosqlite.connect(DB_FILE) as conn:
+            async with conn.execute(
+                "SELECT id FROM referrals WHERE referrer_id=? LIMIT ?",
+                (target_id, amount)
+            ) as c:
+                rows = await c.fetchall()
+            for row in rows:
+                await conn.execute("DELETE FROM referrals WHERE id=?", (row[0],))
+            await conn.commit()
+        action_text = f"-{amount} ta bal ayirildi"
+
+    new_count = await db.get_referral_count(target_id)
+    await message.answer(
+        f"✅ <b>{target_name}</b>\n"
+        f"{action_text}\n"
+        f"💰 Yangi bali: <b>{new_count} ta</b>",
+        parse_mode="HTML"
+    )
+
+
+# ─── /setbal BUYRUQ ──────────────────────────────────────────
+
+class SetBalState(StatesGroup):
+    waiting_amount = State()
+
+
+@router.message(F.text.startswith("/setbal"))
+async def setbal_cmd(message: Message, state: FSMContext):
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        await message.answer(
+            "❌ To'g'ri format:\n"
+            "<code>/setbal @username</code>\n"
+            "<code>/setbal 123456789</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    text = parts[1].lstrip("@")
+    import aiosqlite
+    from config import DB_FILE
+
+    target = None
+    async with aiosqlite.connect(DB_FILE) as conn:
+        if text.isdigit():
+            async with conn.execute(
+                "SELECT user_id, full_name, username FROM users WHERE user_id=?", (int(text),)
+            ) as c:
+                row = await c.fetchone()
+        else:
+            async with conn.execute(
+                "SELECT user_id, full_name, username FROM users WHERE username=?", (text,)
+            ) as c:
+                row = await c.fetchone()
+
+    if row:
+        target = {"user_id": row[0], "full_name": row[1], "username": row[2]}
+
+    if not target:
+        await message.answer("❌ Foydalanuvchi topilmadi.")
+        return
+
+    ref_count = await db.get_referral_count(target["user_id"])
+    rank = await db.get_user_rank(target["user_id"])
+    uname = f"@{target['username']}" if target["username"] else "username yo'q"
+
+    await state.set_state(SetBalState.waiting_amount)
+    await state.update_data(
+        target_id=target["user_id"],
+        target_name=target["full_name"],
+        old_bal=ref_count
+    )
+
+    await message.answer(
+        f"👤 <b>{target['full_name']}</b> ({uname})\n"
+        f"🆔 <code>{target['user_id']}</code>\n"
+        f"💰 Hozirgi bali: <b>{ref_count} ta</b>\n"
+        f"🏆 O'rni: <b>{rank}-o'rin</b>\n\n"
+        f"Yangi balini kiriting (faqat raqam):\n"
+        f"Bekor qilish: /cancel",
+        parse_mode="HTML"
+    )
+
+
+@router.message(SetBalState.waiting_amount)
+async def setbal_amount(message: Message, state: FSMContext):
+    if message.text.strip() == "/cancel":
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.")
+        return
+
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Faqat raqam kiriting!")
+        return
+
+    new_bal = int(message.text.strip())
+    data = await state.get_data()
+    target_id = data["target_id"]
+    target_name = data["target_name"]
+    old_bal = data["old_bal"]
+
+    await state.update_data(new_bal=new_bal)
+
+    diff = new_bal - old_bal
+    diff_text = f"+{diff}" if diff >= 0 else str(diff)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Tasdiqlash", callback_data=f"setbal:confirm:{target_id}:{new_bal}")
+    kb.button(text="❌ Bekor", callback_data="setbal:cancel")
+    kb.adjust(2)
+
+    await message.answer(
+        f"⚠️ <b>Tasdiqlaysizmi?</b>\n\n"
+        f"👤 {target_name}\n"
+        f"💰 Eski bal: <b>{old_bal}</b>\n"
+        f"💰 Yangi bal: <b>{new_bal}</b>\n"
+        f"📊 O'zgarish: <b>{diff_text}</b>",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup()
+    )
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("setbal:confirm:"))
+async def setbal_confirm(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    target_id = int(parts[2])
+    new_bal = int(parts[3])
+
+    import aiosqlite
+    from config import DB_FILE
+
+    async with aiosqlite.connect(DB_FILE) as conn:
+        # Avval bu odamning barcha referrallarini o'chirish
+        await conn.execute("DELETE FROM referrals WHERE referrer_id=?", (target_id,))
+        # Yangi bal qo'shish (soxta referrallar bilan)
+        for i in range(new_bal):
+            fake_id = -(target_id * 10000 + i)
+            try:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?,?)",
+                    (target_id, fake_id)
+                )
+            except Exception:
+                pass
+        await conn.commit()
+
+    actual = await db.get_referral_count(target_id)
+    rank = await db.get_user_rank(target_id)
+
+    await callback.message.edit_text(
+        f"✅ <b>Bal yangilandi!</b>\n\n"
+        f"💰 Yangi bal: <b>{actual} ta</b>\n"
+        f"🏆 Yangi o'rni: <b>{rank}-o'rin</b>",
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "setbal:cancel")
+async def setbal_cancel(callback: CallbackQuery):
+    await callback.message.edit_text("❌ Bekor qilindi.")
