@@ -41,12 +41,12 @@ async def cmd_start(message: Message, bot: Bot):
     if not is_member:
         try:
             group_info = await bot.get_chat(GROUP_ID)
-            invite = group_info.invite_link or "https://t.me/"
+            invite = group_info.invite_link or "https://t.me/+qpPPqYGXKqs3ZmIy"
         except Exception:
-            invite = "https://t.me/"
+            invite = "https://t.me/+qpPPqYGXKqs3ZmIy"
         await message.answer(
             "👋 Assalomu alaykum!\n\n"
-            "⚠️ Davom etish uchun guruhga a'zo bo'ling:",
+            "⚠️ Botdan foydalanish uchun avval guruh va kanalga a'zo bo'ling:",
             reply_markup=join_keyboard(invite, CHANNEL_URL if CHECK_CHANNEL else None)
         )
         return
@@ -67,15 +67,25 @@ async def check_join(callback: CallbackQuery, bot: Bot):
     user = callback.from_user
     is_member = await check_membership(bot, user.id)
     if is_member:
+        await db.register_user(user.id, user.username, user.full_name)
         is_admin = user.id in ADMIN_IDS
         await callback.message.edit_text("✅ A'zolik tasdiqlandi!")
         await callback.message.answer(
-            "👇 Menyudan foydalaning:",
-            reply_markup=admin_menu() if is_admin else user_menu()
+            f"👋 Xush kelibsiz, <b>{user.full_name}</b>!\n\n"
+            f"🎉 Give Away ga xush kelibsiz!\n"
+            f"📌 Shaxsiy linkingizni oling va do'stlaringizni taklif qiling!\n\n"
+            f"👇 Pastdagi tugmalardan foydalaning:",
+            reply_markup=admin_menu() if is_admin else user_menu(),
+            parse_mode="HTML"
         )
     else:
+        try:
+            group_info = await bot.get_chat(GROUP_ID)
+            invite = group_info.invite_link or "https://t.me/+qpPPqYGXKqs3ZmIy"
+        except Exception:
+            invite = "https://t.me/+qpPPqYGXKqs3ZmIy"
         await callback.answer(
-            "❌ A'zolik aniqlanmadi. Guruhga qo'shiling va qayta bosing.",
+            "❌ Hali a'zo emassiz! Guruh va kanalga qo'shiling.",
             show_alert=True
         )
 
@@ -84,6 +94,8 @@ async def check_join(callback: CallbackQuery, bot: Bot):
 
 @router.message(F.text == "🔗 Linkimni olish")
 async def my_link(message: Message, bot: Bot):
+    if not await require_membership(message, bot):
+        return
     user = message.from_user
 
     if await db.is_blacklisted(user.id):
@@ -134,7 +146,9 @@ async def my_link(message: Message, bot: Bot):
 # ─── ACHKOLARIM ──────────────────────────────────────────────
 
 @router.message(F.text == "👥 Achkolarim")
-async def my_invites(message: Message):
+async def my_invites(message: Message, bot: Bot):
+    if not await require_membership(message, bot):
+        return
     await show_invites_page(message, message.from_user.id, page=1)
 
 
@@ -175,7 +189,9 @@ async def invites_page(callback: CallbackQuery):
 # ─── BAL BERISH ──────────────────────────────────────────────
 
 @router.message(F.text == "🎁 Bal berish")
-async def give_points_start(message: Message, state: FSMContext):
+async def give_points_start(message: Message, state: FSMContext, bot: Bot):
+    if not await require_membership(message, bot):
+        return
     user = message.from_user
     u = await db.get_user(user.id)
 
