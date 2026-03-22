@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 import database as db
 from config import (
-    ADMIN_IDS, GROUP_ID, TOP_WINNERS_COUNT,
+    ADMIN_IDS, GROUP_ID, GROUP_ID, TOP_WINNERS_COUNT,
     TOP_RANDOM_POOL_START, TOP_RANDOM_POOL_END, TOP_RANDOM_COUNT,
     GLOBAL_RANDOM_COUNT, MIN_REFERRALS_FOR_RANDOM, BACKUP_WINNERS_COUNT
 )
@@ -60,7 +60,7 @@ async def start_giveaway_cmd(message: Message, state: FSMContext):
     await state.set_state(GiveawaySetup.start_time)
     await message.answer(
         "📅 <b>Give away boshlanish vaqtini kiriting:</b>\n\n"
-        "Format: <code>21.03.2026 20:00</code>\n"
+        "Format: <code>25.01.2025 20:00</code>\n"
         "⏰ Toshkent vaqti (UTC+5) da kiriting",
         parse_mode='HTML'
     )
@@ -74,14 +74,14 @@ async def gw_get_start(message: Message, state: FSMContext):
         await state.set_state(GiveawaySetup.end_time)
         await message.answer(
             "📅 <b>Tugash vaqtini kiriting:</b>\n\n"
-            "Format: <code>01.04.2026 20:00</code>\n"
+            "Format: <code>02.02.2025 20:00</code>\n"
             "⚠️ Kamida 1 kun, ko'pi bilan 60 kun bo'lishi kerak",
             parse_mode='HTML'
         )
     except ValueError:
         await message.answer(
             "❌ Format noto'g'ri!\n"
-            "To'g'ri misol: <code>21.03.2026 20:00</code>",
+            "To'g'ri misol: <code>25.01.2025 20:00</code>",
             parse_mode='HTML'
         )
 
@@ -226,7 +226,7 @@ async def announce_winners(bot: Bot):
     pool_winners = await db.get_random_pool_winners(
         TOP_RANDOM_POOL_START, TOP_RANDOM_POOL_END, TOP_RANDOM_COUNT, won_ids
     )
-    random_text = ["\n\n🎲 <b>RANDOM SOVG'A (Top 4-10):</b>\n"]
+    random_text = ["\n\n🎲 <b>RANDOM SOVGA (Top 4-10):</b>\n"]
     for uid, username, full_name, cnt in pool_winners:
         random_text.append(f"🎁 {user_mention(full_name, uid)}")
         await db.save_winner(uid, 'pool_random')
@@ -234,14 +234,14 @@ async def announce_winners(bot: Bot):
 
     # 3. Global random
     global_winner = await db.get_global_random_winner(won_ids, MIN_REFERRALS_FOR_RANDOM)
-    global_text = ["\n\n🌟 <b>UMUMIY RANDOM G'OLIB:</b>\n"]
+    global_text = ["\n\n🌟 <b>UMUMIY RANDOM GOLIB:</b>\n"]
     if global_winner:
         uid, username, full_name, cnt = global_winner
         global_text.append(f"🌟 {user_mention(full_name, uid)}")
         await db.save_winner(uid, 'global_random')
         won_ids.append(uid)
     else:
-        global_text.append("Hech kim shart bajarmadi")
+        global_text.append("Hech kim shart bajarмadi")
 
     full_text = (
         "".join(top_text) +
@@ -378,14 +378,14 @@ async def admin_stats(message: Message):
 
 # ─── G'OLIBLAR ───────────────────────────────────────────────
 
-@router.message(F.text == "🏆 G'oliblar")
+@router.message(F.text == "🏆 Goliblar")
 async def show_winners(message: Message):
     winners = await db.get_winners()
     if not winners:
-        await message.answer("ℹ️ Hali g'oliblar aniqlanmagan.")
+        await message.answer("ℹ️ Hali goliblar aniqlanmagan.")
         return
 
-    text = ["🏆 <b>G'OLIBLAR:</b>\n"]
+    text = ["🏆 <b>GOLIBLAR:</b>\n"]
     for uid, prize_type, rank, username, full_name in winners:
         uname = f"@{username}" if username else "username yo'q"
         prize_names = {
@@ -655,7 +655,7 @@ async def bal_get_user(message: Message, state: FSMContext):
     await state.set_state(BalState.waiting_amount)
 
     ref_count = await db.get_referral_count(target["user_id"])
-    action_text = "qo'shmoqchisiz" if action == "bal:add" else "ayirmoqchisiz"
+    action_text = "qoshmoqchisiz" if action == "bal:add" else "ayirmoqchisiz"
     await message.answer(
         f"👤 <b>{target['full_name']}</b>\n"
         f"💰 Hozirgi bali: <b>{ref_count} ta</b>\n\n"
@@ -864,3 +864,126 @@ async def setbal_confirm(callback: CallbackQuery):
 @router.callback_query(F.data == "setbal:cancel")
 async def setbal_cancel(callback: CallbackQuery):
     await callback.message.edit_text("❌ Bekor qilindi.")
+
+
+# ─── RETENTION ───────────────────────────────────────────────
+
+@router.message(F.text.startswith("/retention"))
+async def retention_cmd(message: Message, bot: Bot):
+    parts = message.text.strip().split()
+    import aiosqlite
+    from config import DB_FILE
+    from datetime import timedelta
+
+    # Umumiy yoki shaxsiy
+    if len(parts) == 1:
+        # Umumiy statistika
+        async with aiosqlite.connect(DB_FILE) as conn:
+            # So'nggi 7 kunda qo'shilganlar
+            async with conn.execute("""
+                SELECT COUNT(*) FROM users 
+                WHERE joined_at >= datetime('now', '-7 days')
+            """) as c:
+                total_joined = (await c.fetchone())[0]
+
+            # Hali guruhda bormi tekshirish
+            async with conn.execute("""
+                SELECT user_id FROM users 
+                WHERE joined_at >= datetime('now', '-7 days')
+                AND is_member = 1
+            """) as c:
+                members = await c.fetchall()
+
+        still_in = 0
+        for (uid,) in members:
+            try:
+                m = await bot.get_chat_member(GROUP_ID, uid)
+                if m.status not in ('left', 'kicked', 'banned'):
+                    still_in += 1
+                else:
+                    async with aiosqlite.connect(DB_FILE) as conn:
+                        await conn.execute(
+                            "UPDATE users SET is_member=0 WHERE user_id=?", (uid,)
+                        )
+                        await conn.commit()
+            except Exception:
+                pass
+
+        left = total_joined - still_in
+        percent = round(still_in / total_joined * 100) if total_joined > 0 else 0
+
+        await message.answer(
+            f"📊 <b>Azolar saqlanishi (songgi 7 kun)</b>\n\n"
+            f"➕ Qo'shildi: <b>{total_joined} ta</b>\n"
+            f"❌ Chiqib ketdi: <b>{left} ta</b>\n"
+            f"✅ Qoldi: <b>{still_in} ta</b>\n\n"
+            f"📈 Saqlanish: <b>{percent}%</b>\n\n"
+            f"💡 Shaxsiy tekshirish:\n"
+            f"<code>/retention @username</code>\n"
+            f"<code>/retention 123456789</code>",
+            parse_mode='HTML'
+        )
+
+    else:
+        # Shaxsiy — aynan bir kishi qoshganlari
+        text = parts[1].lstrip('@')
+
+        async with aiosqlite.connect(DB_FILE) as conn:
+            if text.isdigit():
+                async with conn.execute(
+                    "SELECT user_id, full_name, username FROM users WHERE user_id=?", (int(text),)
+                ) as c:
+                    row = await c.fetchone()
+            else:
+                async with conn.execute(
+                    "SELECT user_id, full_name, username FROM users WHERE username=?", (text,)
+                ) as c:
+                    row = await c.fetchone()
+
+        if not row:
+            await message.answer("❌ Foydalanuvchi topilmadi.")
+            return
+
+        target_id, full_name, username = row
+
+        # Bu odam qo'shgan barcha odamlar
+        async with aiosqlite.connect(DB_FILE) as conn:
+            async with conn.execute("""
+                SELECT r.referred_id FROM referrals r
+                WHERE r.referrer_id = ?
+            """, (target_id,)) as c:
+                referred = await c.fetchall()
+
+        total = len(referred)
+        still_in = 0
+        left_count = 0
+
+        for (uid,) in referred:
+            try:
+                m = await bot.get_chat_member(GROUP_ID, uid)
+                if m.status not in ('left', 'kicked', 'banned'):
+                    still_in += 1
+                else:
+                    left_count += 1
+                    async with aiosqlite.connect(DB_FILE) as conn:
+                        await conn.execute(
+                            "UPDATE users SET is_member=0 WHERE user_id=?", (uid,)
+                        )
+                        await conn.commit()
+            except Exception:
+                left_count += 1
+
+        percent = round(still_in / total * 100) if total > 0 else 0
+        uname = f"@{username}" if username else f"ID: {target_id}"
+
+        emoji = "🟢" if percent >= 70 else "🟡" if percent >= 40 else "🔴"
+
+        await message.answer(
+            f"📊 <b>{full_name}</b> ({uname}) qo'shganlari:\n\n"
+            f"➕ Jami qo'shdi: <b>{total} ta</b>\n"
+            f"❌ Chiqib ketdi: <b>{left_count} ta</b>\n"
+            f"✅ Hali guruhda: <b>{still_in} ta</b>\n\n"
+            f"{emoji} Saqlanish: <b>{percent}%</b>\n\n"
+            f"{'🟢 Yaxshi natija!' if percent >= 70 else '🟡 Ortacha' if percent >= 40 else '🔴 Past — nakrutka bolishi mumkin!'}",
+            parse_mode='HTML'
+        )
