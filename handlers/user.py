@@ -337,3 +337,51 @@ async def cancel_action(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "noop")
 async def noop(callback: CallbackQuery):
     await callback.answer()
+
+
+# ─── BUYRUQLAR ───────────────────────────────────────────────
+
+@router.message(F.text == "/mylink")
+async def cmd_mylink(message: Message, bot: Bot):
+    await my_link(message, bot)
+
+
+@router.message(F.text == "/mystats")
+async def cmd_mystats(message: Message):
+    user = message.from_user
+    ref_count = await db.get_referral_count(user.id)
+    rank = await db.get_user_rank(user.id)
+    gw = await db.get_giveaway()
+
+    if ref_count >= MIN_REFERRALS_FOR_RANDOM:
+        random_status = "✅ Random sovga uchun huquqingiz bor!"
+    else:
+        need = MIN_REFERRALS_FOR_RANDOM - ref_count
+        random_status = f"🎲 Random sovgaga yana <b>{need} ta</b> odam yetishmayapti!"
+
+    time_left = "—"
+    if gw and gw['is_active'] and gw['ends_at']:
+        ends = datetime.fromisoformat(str(gw['ends_at'])).replace(tzinfo=timezone.utc)
+        time_left = time_remaining(ends)
+
+    await message.answer(
+        f"📊 <b>Sizning statistikangiz</b>
+
+"
+        f"👤 {user_mention(user.full_name, user.id)}
+"
+        f"👥 Qoshgan odamlar: <b>{ref_count} ta</b>
+"
+        f"🏆 Orningiz: <b>{rank}-orin</b>
+"
+        f"⏰ Tugashiga: <b>{time_left}</b>
+
+"
+        f"{random_status}",
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text == "/myinvites")
+async def cmd_myinvites(message: Message):
+    await show_invites_page(message, message.from_user.id, page=1)
