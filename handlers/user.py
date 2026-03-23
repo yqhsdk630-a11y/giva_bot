@@ -365,19 +365,13 @@ async def cmd_mystats(message: Message):
         time_left = time_remaining(ends)
 
     await message.answer(
-        f"📊 <b>Sizning statistikangiz</b>
-
-"
-        f"👤 {user_mention(user.full_name, user.id)}
-"
-        f"👥 Qoshgan odamlar: <b>{ref_count} ta</b>
-"
-        f"🏆 Orningiz: <b>{rank}-orin</b>
-"
-        f"⏰ Tugashiga: <b>{time_left}</b>
-
-"
-        f"{random_status}",
+        (
+            "📊 <b>Sizning statistikangiz</b>\n\n"
+            + f"👥 Qoshgan odamlar: <b>{ref_count} ta</b>\n"
+            + f"🏆 Orningiz: <b>{rank}-orin</b>\n"
+            + f"Tugashiga: <b>{time_left}</b>\n\n"
+            + random_status
+        ),
         parse_mode='HTML'
     )
 
