@@ -19,9 +19,23 @@ from utils import check_membership, user_mention, time_remaining
 logger = logging.getLogger(__name__)
 router = Router()
 
+GROUP_INVITE_LINK = "https://t.me/+qpPPqYGXKqs3ZmIy"
+
 
 class TransferState(StatesGroup):
     waiting_target = State()
+
+
+async def get_invite(bot: Bot) -> str:
+    try:
+        group_info = await bot.get_chat(GROUP_ID)
+        return group_info.invite_link or GROUP_INVITE_LINK
+    except Exception:
+        return GROUP_INVITE_LINK
+
+
+async def is_member_check(bot: Bot, user_id: int) -> bool:
+    return await check_membership(bot, user_id)
 
 
 # ─── START ───────────────────────────────────────────────────
@@ -31,19 +45,14 @@ async def cmd_start(message: Message, bot: Bot):
     user = message.from_user
 
     if await db.is_blacklisted(user.id):
-        await message.answer("🚫 Siz konkursda qatnashishdan mahrum etilgansiz.")
+        await message.answer("🚫 Siz konkursdan mahrum etilgansiz.")
         return
 
     await db.register_user(user.id, user.username, user.full_name)
     is_admin = user.id in ADMIN_IDS
 
-    is_member = await check_membership(bot, user.id)
-    if not is_member:
-        try:
-            group_info = await bot.get_chat(GROUP_ID)
-            invite = group_info.invite_link or "https://t.me/+qpPPqYGXKqs3ZmIy"
-        except Exception:
-            invite = "https://t.me/+qpPPqYGXKqs3ZmIy"
+    if not await is_member_check(bot, user.id):
+        invite = await get_invite(bot)
         await message.answer(
             "👋 Assalomu alaykum!\n\n"
             "⚠️ Botdan foydalanish uchun avval guruh va kanalga a'zo bo'ling:",
@@ -65,25 +74,19 @@ async def cmd_start(message: Message, bot: Bot):
 @router.callback_query(F.data == "check_membership")
 async def check_join(callback: CallbackQuery, bot: Bot):
     user = callback.from_user
-    is_member = await check_membership(bot, user.id)
-    if is_member:
+    if await is_member_check(bot, user.id):
         await db.register_user(user.id, user.username, user.full_name)
         is_admin = user.id in ADMIN_IDS
         await callback.message.edit_text("✅ A'zolik tasdiqlandi!")
         await callback.message.answer(
             f"👋 Xush kelibsiz, <b>{user.full_name}</b>!\n\n"
-            f"🎉 Give Away ga xush kelibsiz!\n"
-            f"📌 Shaxsiy linkingizni oling va do'stlaringizni taklif qiling!\n\n"
+            f"📌 Linkingizni oling va do'stlaringizni taklif qiling!\n\n"
             f"👇 Pastdagi tugmalardan foydalaning:",
             reply_markup=admin_menu() if is_admin else user_menu(),
-            parse_mode="HTML"
+            parse_mode='HTML'
         )
     else:
-        try:
-            group_info = await bot.get_chat(GROUP_ID)
-            invite = group_info.invite_link or "https://t.me/+qpPPqYGXKqs3ZmIy"
-        except Exception:
-            invite = "https://t.me/+qpPPqYGXKqs3ZmIy"
+        invite = await get_invite(bot)
         await callback.answer(
             "❌ Hali a'zo emassiz! Guruh va kanalga qo'shiling.",
             show_alert=True
@@ -94,12 +97,18 @@ async def check_join(callback: CallbackQuery, bot: Bot):
 
 @router.message(F.text == "🔗 Linkimni olish")
 async def my_link(message: Message, bot: Bot):
-    if not await require_membership(message, bot):
-        return
     user = message.from_user
 
+    if not await is_member_check(bot, user.id):
+        invite = await get_invite(bot)
+        await message.answer(
+            "⚠️ Avval guruhga a'zo bo'ling!",
+            reply_markup=join_keyboard(invite, CHANNEL_URL if CHECK_CHANNEL else None)
+        )
+        return
+
     if await db.is_blacklisted(user.id):
-        await message.answer("🚫 Siz konkursda qatnashishdan mahrum etilgansiz.")
+        await message.answer("🚫 Siz konkursdan mahrum etilgansiz.")
         return
 
     gw = await db.get_giveaway()
@@ -129,8 +138,10 @@ async def my_link(message: Message, bot: Bot):
             return
 
     ref_count = await db.get_referral_count(user.id)
-    ends = datetime.fromisoformat(str(gw['ends_at'])).replace(tzinfo=timezone.utc)
-    time_left = time_remaining(ends)
+    time_left = "—"
+    if gw and gw['ends_at']:
+        ends = datetime.fromisoformat(str(gw['ends_at'])).replace(tzinfo=timezone.utc)
+        time_left = time_remaining(ends)
 
     await message.answer(
         f"🔗 <b>Sizning shaxsiy taklif linkingiz:</b>\n\n"
@@ -147,7 +158,12 @@ async def my_link(message: Message, bot: Bot):
 
 @router.message(F.text == "👥 Achkolarim")
 async def my_invites(message: Message, bot: Bot):
-    if not await require_membership(message, bot):
+    if not await is_member_check(bot, message.from_user.id):
+        invite = await get_invite(bot)
+        await message.answer(
+            "⚠️ Avval guruhga a'zo bo'ling!",
+            reply_markup=join_keyboard(invite, CHANNEL_URL if CHECK_CHANNEL else None)
+        )
         return
     await show_invites_page(message, message.from_user.id, page=1)
 
@@ -190,8 +206,14 @@ async def invites_page(callback: CallbackQuery):
 
 @router.message(F.text == "🎁 Bal berish")
 async def give_points_start(message: Message, state: FSMContext, bot: Bot):
-    if not await require_membership(message, bot):
+    if not await is_member_check(bot, message.from_user.id):
+        invite = await get_invite(bot)
+        await message.answer(
+            "⚠️ Avval guruhga a'zo bo'ling!",
+            reply_markup=join_keyboard(invite, CHANNEL_URL if CHECK_CHANNEL else None)
+        )
         return
+
     user = message.from_user
     u = await db.get_user(user.id)
 
