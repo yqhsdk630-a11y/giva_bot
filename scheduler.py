@@ -161,24 +161,15 @@ async def check_24h_warning(bot: Bot):
                 ref_count = await db.get_referral_count(user_id)
                 need_random = max(0, MIN_REFERRALS_FOR_RANDOM - ref_count)
 
-                if lang == 'uz':
-                    text = (
-                        f"⏰ <b>ESLATMA!</b>\n\n"
-                        f"Give Away tugashiga <b>24 soat</b> qoldi!\n"
-                        f"Sizda hozir <b>{ref_count} ta</b> ball bor.\n\n"
-                        f"{'✅ Random sovg\'a uchun huquqingiz bor!' if need_random == 0 else f'🎲 Random sovg\'aga yana {need_random} ta odam kerak!'}\n\n"
-                        f"🔗 Linkingizni oling va tarqating: /mylink\n"
-                        f"⚡ Oxirgi imkoniyat!"
-                    )
-                else:
-                    text = (
-                        f"⏰ <b>НАПОМИНАНИЕ!</b>\n\n"
-                        f"До конца конкурса осталось <b>24 часа</b>!\n"
-                        f"У вас сейчас <b>{ref_count}</b> баллов.\n\n"
-                        f"{'✅ Вы участвуете в случайном розыгрыше!' if need_random == 0 else f'🎲 До розыгрыша не хватает {need_random} чел.!'}\n\n"
-                        f"🔗 Получите ссылку: /mylink\n"
-                        f"⚡ Последний шанс!"
-                    )
+                random_txt = "✅ Random sovga uchun huquqingiz bor!" if need_random == 0 else f"🎲 Random sovgaga yana {need_random} ta odam kerak!"
+                text = (
+                    "⏰ <b>ESLATMA!</b>\n\n"
+                    f"Give Away tugashiga <b>24 soat</b> qoldi!\n"
+                    f"Sizda hozir <b>{ref_count} ta</b> ball bor.\n\n"
+                    f"{random_txt}\n\n"
+                    "🔗 Linkingizni oling va tarqating: /mylink\n"
+                    "⚡ Oxirgi imkoniyat!"
+                )
                 await bot.send_message(user_id, text, parse_mode='HTML')
             except Exception:
                 pass
