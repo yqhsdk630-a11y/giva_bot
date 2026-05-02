@@ -978,13 +978,14 @@ async def retention_cmd(message: Message, bot: Bot):
 
         emoji = "🟢" if percent >= 70 else "🟡" if percent >= 40 else "🔴"
 
+        result_txt = "🟢 Yaxshi natija!" if percent >= 70 else ("🟡 Ortacha" if percent >= 40 else "🔴 Past - nakrutka bolishi mumkin!")
         await message.answer(
-            f"📊 <b>{full_name}</b> ({uname}) qo'shganlari:\n\n"
-            f"➕ Jami qo'shdi: <b>{total} ta</b>\n"
+            f"📊 <b>{full_name}</b> ({uname}) qoshganlari:\n\n"
+            f"➕ Jami qoshdi: <b>{total} ta</b>\n"
             f"❌ Chiqib ketdi: <b>{left_count} ta</b>\n"
             f"✅ Hali guruhda: <b>{still_in} ta</b>\n\n"
             f"{emoji} Saqlanish: <b>{percent}%</b>\n\n"
-            ("🟢 Yaxshi natija!" if percent >= 70 else ("🟡 Ortacha" if percent >= 40 else "🔴 Past - nakrutka bolishi mumkin!")),
+            f"{result_txt}",
             parse_mode='HTML'
         )
 
