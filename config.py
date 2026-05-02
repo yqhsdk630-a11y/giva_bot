@@ -2,7 +2,8 @@
 #   SOZLAMALAR
 # =============================================
 
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # @BotFather dan oling
+import os
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8758446528:AAHF1AahPEE4xtH3p_Dwz9x1gbA4XIiuvZU")
 
 GROUP_ID = -1003371929345
 CHANNEL_ID = -1001234567891        # kanal ID ni to'ldiring (quyida tushuntiraman)
