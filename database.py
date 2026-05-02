@@ -87,7 +87,22 @@ async def init_db():
         await db.execute("INSERT OR IGNORE INTO giveaway (id) VALUES (1)")
         await db.execute("INSERT OR IGNORE INTO leaderboard_msg (id) VALUES (1)")
         await db.commit()
+    await create_request_table_inner(db)
     logger.info("✅ Database tayyor")
+
+
+
+async def create_request_table_inner(db):
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS bal_requests (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_id     INTEGER NOT NULL,
+            token       TEXT NOT NULL UNIQUE,
+            status      TEXT DEFAULT 'pending',
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.commit()
 
 
 # ─── FOYDALANUVCHI ───────────────────────────────────────────
@@ -108,6 +123,16 @@ async def register_user(user_id: int, username: str, full_name: str, lang: str =
             (user_id, username, full_name, lang)
         )
         await db.commit()
+
+        # Google Sheets ga ham yozish
+        try:
+            from config import USE_GOOGLE_SHEETS
+            if USE_GOOGLE_SHEETS:
+                from sheets import save_user_to_sheets
+                await save_user_to_sheets(user_id, full_name, username)
+        except Exception:
+            pass
+
         return True
 
 
@@ -528,3 +553,140 @@ async def revoke_all_invite_links(bot, group_id: int):
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute("DELETE FROM invite_links")
         await db.commit()
+
+
+# ─── BAL SO'RASH ─────────────────────────────────────────────
+
+async def create_request_table():
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS bal_requests (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_id     INTEGER NOT NULL,
+                token       TEXT NOT NULL UNIQUE,
+                status      TEXT DEFAULT 'pending',
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.commit()
+
+
+async def create_bal_request(from_id: int, token: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            "INSERT INTO bal_requests (from_id, token) VALUES (?, ?)",
+            (from_id, token)
+        )
+        await db.commit()
+
+
+async def get_bal_request(token: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute(
+            "SELECT id, from_id, status FROM bal_requests WHERE token=?", (token,)
+        ) as c:
+            return await c.fetchone()
+
+
+async def update_bal_request_status(token: str, status: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            "UPDATE bal_requests SET status=? WHERE token=?", (status, token)
+        )
+        await db.commit()
+
+
+# ─── GURUH HIMOYA ────────────────────────────────────────────
+
+async def init_guard_tables():
+    async with aiosqlite.connect(DB_FILE) as db:
+        # Kalit so'zlar
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS keywords (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                word    TEXT NOT NULL UNIQUE
+            )
+        """)
+        # Guruh sozlamalari
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS guard_settings (
+                key     TEXT PRIMARY KEY,
+                value   TEXT NOT NULL
+            )
+        """)
+        # Foydalanuvchi link limiti
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS link_warned (
+                user_id     INTEGER PRIMARY KEY,
+                extra_done  INTEGER DEFAULT 0
+            )
+        """)
+        await db.commit()
+
+
+async def get_guard_setting(key: str, default: str) -> str:
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute(
+            "SELECT value FROM guard_settings WHERE key=?", (key,)
+        ) as c:
+            row = await c.fetchone()
+    return row[0] if row else default
+
+
+async def set_guard_setting(key: str, value: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO guard_settings (key, value) VALUES (?,?)",
+            (key, value)
+        )
+        await db.commit()
+
+
+async def get_keywords() -> list:
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute("SELECT word FROM keywords") as c:
+            rows = await c.fetchall()
+    return [r[0].lower() for r in rows]
+
+
+async def add_keyword(word: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO keywords (word) VALUES (?)", (word.lower(),)
+        )
+        await db.commit()
+
+
+async def remove_keyword(word: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute("DELETE FROM keywords WHERE word=?", (word.lower(),))
+        await db.commit()
+
+
+async def is_link_warned(user_id: int) -> bool:
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute(
+            "SELECT extra_done FROM link_warned WHERE user_id=?", (user_id,)
+        ) as c:
+            row = await c.fetchone()
+    return bool(row and row[0])
+
+
+async def set_link_warned(user_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO link_warned (user_id, extra_done) VALUES (?,1)",
+            (user_id,)
+        )
+        await db.commit()
+
+
+async def backup_user_to_channel(bot, user_id: int, full_name: str, username: str, bot_name: str, channel_id: int):
+    try:
+        uname = f"@{username}" if username else "username yoq"
+        await bot.send_message(
+            channel_id,
+            f"ID:{user_id} | {uname} | {full_name} | {bot_name}"
+        )
+    except Exception:
+        pass
