@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 async def init_db():
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id         INTEGER PRIMARY KEY,
@@ -21,7 +21,8 @@ async def init_db():
                 transfer_done   INTEGER DEFAULT 0,
                 blacklisted     INTEGER DEFAULT 0,
                 link_sent_at    TIMESTAMP DEFAULT NULL,
-                last_active     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                last_active     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                backed_up       INTEGER DEFAULT 0
             )
         """)
         await db.execute("""
@@ -93,6 +94,11 @@ async def init_db():
                 created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Migration: backed_up ustuni qo'shish (eski DB lar uchun)
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN backed_up INTEGER DEFAULT 0")
+        except Exception:
+            pass  # Ustun allaqachon bor
         await db.execute("INSERT OR IGNORE INTO giveaway (id) VALUES (1)")
         await db.execute("INSERT OR IGNORE INTO leaderboard_msg (id) VALUES (1)")
         await db.commit()
@@ -106,7 +112,7 @@ async def init_db():
 # ─── FOYDALANUVCHI ───────────────────────────────────────────
 
 async def register_user(user_id: int, username: str, full_name: str, lang: str = 'uz') -> bool:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,)) as c:
             exists = await c.fetchone()
         if exists:
@@ -135,32 +141,32 @@ async def register_user(user_id: int, username: str, full_name: str, lang: str =
 
 
 async def get_user(user_id: int):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM users WHERE user_id=?", (user_id,)) as c:
             return await c.fetchone()
 
 
 async def set_user_lang(user_id: int, lang: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
         await db.commit()
 
 
 async def set_bot_blocked(user_id: int, blocked: bool):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("UPDATE users SET bot_blocked=? WHERE user_id=?", (int(blocked), user_id))
         await db.commit()
 
 
 async def set_link_sent(user_id: int):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("UPDATE users SET link_sent_at=? WHERE user_id=?", (datetime.utcnow(), user_id))
         await db.commit()
 
 
 async def get_all_active_users():
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT user_id FROM users WHERE bot_blocked=0 AND blacklisted=0"
         ) as c:
@@ -169,13 +175,13 @@ async def get_all_active_users():
 
 
 async def blacklist_user(user_id: int, blacklisted: bool):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("UPDATE users SET blacklisted=? WHERE user_id=?", (int(blacklisted), user_id))
         await db.commit()
 
 
 async def is_blacklisted(user_id: int) -> bool:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT blacklisted FROM users WHERE user_id=?", (user_id,)) as c:
             row = await c.fetchone()
     return bool(row[0]) if row else False
@@ -185,7 +191,7 @@ async def is_blacklisted(user_id: int) -> bool:
 
 async def add_referral(referrer_id: int, referred_id: int) -> bool:
     """Referral qo'shish. True = muvaffaqiyatli"""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT id FROM referrals WHERE referred_id=?", (referred_id,)) as c:
             if await c.fetchone():
                 return False
@@ -209,7 +215,7 @@ async def add_referral(referrer_id: int, referred_id: int) -> bool:
 
 
 async def get_referral_count(user_id: int) -> int:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT COUNT(*) FROM referrals WHERE referrer_id=?", (user_id,)
         ) as c:
@@ -218,7 +224,7 @@ async def get_referral_count(user_id: int) -> int:
 
 
 async def get_referrals_list(user_id: int, offset: int = 0, limit: int = 50):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT u.full_name, u.username, r.created_at
             FROM referrals r
@@ -231,7 +237,7 @@ async def get_referrals_list(user_id: int, offset: int = 0, limit: int = 50):
 
 
 async def get_hourly_referrals(user_id: int, hour: int, date_str: str) -> int:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT count FROM daily_referrals WHERE user_id=? AND hour=? AND date=?",
             (user_id, hour, date_str)
@@ -243,7 +249,7 @@ async def get_hourly_referrals(user_id: int, hour: int, date_str: str) -> int:
 # ─── INVITE LINK ─────────────────────────────────────────────
 
 async def save_invite_link(user_id: int, link: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "INSERT OR REPLACE INTO invite_links (user_id,link) VALUES (?,?)",
             (user_id, link)
@@ -252,14 +258,14 @@ async def save_invite_link(user_id: int, link: str):
 
 
 async def get_invite_link(user_id: int):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT link FROM invite_links WHERE user_id=?", (user_id,)) as c:
             row = await c.fetchone()
     return row[0] if row else None
 
 
 async def get_user_id_by_link(link: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT user_id FROM invite_links WHERE link=?", (link,)) as c:
             row = await c.fetchone()
     return row[0] if row else None
@@ -268,7 +274,7 @@ async def get_user_id_by_link(link: str):
 # ─── LEADERBOARD ─────────────────────────────────────────────
 
 async def get_leaderboard(limit: int = 10):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT u.user_id, u.username, u.full_name, COUNT(r.id) as cnt
             FROM users u
@@ -282,7 +288,7 @@ async def get_leaderboard(limit: int = 10):
 
 
 async def get_user_rank(user_id: int) -> int:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT ranked.rnk FROM (
                 SELECT user_id, RANK() OVER (ORDER BY COUNT(r.id) DESC) as rnk
@@ -298,7 +304,7 @@ async def get_user_rank(user_id: int) -> int:
 
 async def get_rank_referral_count(rank: int) -> int:
     """Berilgan o'rindagi odamning referral soni"""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT COUNT(r.id) as cnt
             FROM users u
@@ -315,7 +321,7 @@ async def get_rank_referral_count(rank: int) -> int:
 # ─── BAL TRANSFER ────────────────────────────────────────────
 
 async def transfer_points(from_id: int, to_id: int) -> bool:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT transfer_done FROM users WHERE user_id=?", (from_id,)) as c:
             row = await c.fetchone()
         if not row or row[0]:
@@ -331,14 +337,14 @@ async def transfer_points(from_id: int, to_id: int) -> bool:
 # ─── GIVE AWAY ───────────────────────────────────────────────
 
 async def get_giveaway():
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM giveaway WHERE id=1") as c:
             return await c.fetchone()
 
 
 async def start_giveaway(started_at: datetime, ends_at: datetime):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "UPDATE giveaway SET is_active=1,started_at=?,ends_at=?,finished=0 WHERE id=1",
             (started_at, ends_at)
@@ -347,7 +353,7 @@ async def start_giveaway(started_at: datetime, ends_at: datetime):
 
 
 async def finish_giveaway():
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("UPDATE giveaway SET is_active=0,finished=1 WHERE id=1")
         await db.commit()
 
@@ -355,7 +361,7 @@ async def finish_giveaway():
 # ─── G'OLIBLAR ───────────────────────────────────────────────
 
 async def get_top_winners(count: int = 3):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT u.user_id, u.username, u.full_name, COUNT(r.id) as cnt
             FROM users u
@@ -371,7 +377,7 @@ async def get_top_winners(count: int = 3):
 
 async def get_random_pool_winners(start_rank: int, end_rank: int, count: int, exclude_ids: list):
     import random
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT u.user_id, u.username, u.full_name, COUNT(r.id) as cnt
             FROM users u
@@ -388,7 +394,7 @@ async def get_random_pool_winners(start_rank: int, end_rank: int, count: int, ex
 
 async def get_global_random_winner(exclude_ids: list, min_referrals: int):
     import random
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT u.user_id, u.username, u.full_name, COUNT(r.id) as cnt
             FROM users u
@@ -406,7 +412,7 @@ async def get_global_random_winner(exclude_ids: list, min_referrals: int):
 
 
 async def save_winner(user_id: int, prize_type: str, rank: int = None, backup: bool = False):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "INSERT INTO winners (user_id,prize_type,rank,backup) VALUES (?,?,?,?)",
             (user_id, prize_type, rank, int(backup))
@@ -415,7 +421,7 @@ async def save_winner(user_id: int, prize_type: str, rank: int = None, backup: b
 
 
 async def get_winners(backup: bool = False):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT w.user_id, w.prize_type, w.rank, u.username, u.full_name
             FROM winners w JOIN users u ON u.user_id=w.user_id
@@ -426,7 +432,7 @@ async def get_winners(backup: bool = False):
 
 
 async def get_already_won_ids():
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT user_id FROM winners WHERE backup=0") as c:
             rows = await c.fetchall()
     return [r[0] for r in rows]
@@ -435,7 +441,7 @@ async def get_already_won_ids():
 # ─── SUPPORT ─────────────────────────────────────────────────
 
 async def save_ticket(user_id: int, message_id: int):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "INSERT INTO support_tickets (user_id,message_id) VALUES (?,?)",
             (user_id, message_id)
@@ -444,7 +450,7 @@ async def save_ticket(user_id: int, message_id: int):
 
 
 async def get_ticket_by_admin_msg(admin_msg_id: int):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT user_id FROM support_tickets WHERE admin_msg_id=?", (admin_msg_id,)
         ) as c:
@@ -452,7 +458,7 @@ async def get_ticket_by_admin_msg(admin_msg_id: int):
 
 
 async def update_ticket_admin_msg(user_id: int, message_id: int, admin_msg_id: int):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "UPDATE support_tickets SET admin_msg_id=?,answered=1 WHERE user_id=? AND message_id=?",
             (admin_msg_id, user_id, message_id)
@@ -463,20 +469,20 @@ async def update_ticket_admin_msg(user_id: int, message_id: int, admin_msg_id: i
 # ─── STATISTIKA ──────────────────────────────────────────────
 
 async def get_total_users() -> int:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT COUNT(*) FROM users") as c:
             return (await c.fetchone())[0]
 
 
 async def get_total_referrals() -> int:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT COUNT(*) FROM referrals") as c:
             return (await c.fetchone())[0]
 
 
 async def get_today_joins() -> int:
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT COUNT(*) FROM users WHERE DATE(joined_at)=?", (today,)
         ) as c:
@@ -487,7 +493,7 @@ async def get_today_joins() -> int:
 
 async def export_all_data():
     """CSV uchun barcha ma'lumotlarni qaytaradi"""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("""
             SELECT u.user_id, u.username, u.full_name, u.lang,
                    u.joined_at, u.is_member, u.bot_blocked, u.blacklisted,
@@ -512,7 +518,7 @@ async def export_all_data():
 # ─── SUPPORT MODE ────────────────────────────────────────────
 
 async def set_support_mode(user_id: int, mode: bool):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "UPDATE users SET lang=? WHERE user_id=?",
             ('support' if mode else 'uz', user_id)
@@ -521,7 +527,7 @@ async def set_support_mode(user_id: int, mode: bool):
 
 
 async def get_support_mode(user_id: int) -> bool:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT lang FROM users WHERE user_id=?", (user_id,)
         ) as c:
@@ -530,7 +536,7 @@ async def get_support_mode(user_id: int) -> bool:
 
 
 async def save_ticket(user_id: int, message_id: int, admin_msg_id: int, admin_id: int):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "INSERT OR REPLACE INTO support_tickets (user_id, message_id, admin_msg_id) VALUES (?,?,?)",
             (user_id, message_id, admin_msg_id)
@@ -540,7 +546,7 @@ async def save_ticket(user_id: int, message_id: int, admin_msg_id: int, admin_id
 
 async def revoke_all_invite_links(bot, group_id: int):
     """Give away tugagach barcha invite linklarni o'chirish"""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT user_id, link FROM invite_links") as c:
             links = await c.fetchall()
     for user_id, link in links:
@@ -548,7 +554,7 @@ async def revoke_all_invite_links(bot, group_id: int):
             await bot.revoke_chat_invite_link(group_id, link)
         except Exception:
             pass
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("DELETE FROM invite_links")
         await db.commit()
 
@@ -556,7 +562,7 @@ async def revoke_all_invite_links(bot, group_id: int):
 # ─── BAL SO'RASH ─────────────────────────────────────────────
 
 async def create_request_table():
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS bal_requests (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -570,7 +576,7 @@ async def create_request_table():
 
 
 async def create_bal_request(from_id: int, token: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "INSERT INTO bal_requests (from_id, token) VALUES (?, ?)",
             (from_id, token)
@@ -579,7 +585,7 @@ async def create_bal_request(from_id: int, token: str):
 
 
 async def get_bal_request(token: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT id, from_id, status FROM bal_requests WHERE token=?", (token,)
         ) as c:
@@ -587,7 +593,7 @@ async def get_bal_request(token: str):
 
 
 async def update_bal_request_status(token: str, status: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "UPDATE bal_requests SET status=? WHERE token=?", (status, token)
         )
@@ -597,7 +603,7 @@ async def update_bal_request_status(token: str, status: str):
 # ─── GURUH HIMOYA ────────────────────────────────────────────
 
 async def init_guard_tables():
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         # Kalit so'zlar
         await db.execute("""
             CREATE TABLE IF NOT EXISTS keywords (
@@ -623,7 +629,7 @@ async def init_guard_tables():
 
 
 async def get_guard_setting(key: str, default: str) -> str:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT value FROM guard_settings WHERE key=?", (key,)
         ) as c:
@@ -632,7 +638,7 @@ async def get_guard_setting(key: str, default: str) -> str:
 
 
 async def set_guard_setting(key: str, value: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "INSERT OR REPLACE INTO guard_settings (key, value) VALUES (?,?)",
             (key, value)
@@ -641,14 +647,14 @@ async def set_guard_setting(key: str, value: str):
 
 
 async def get_keywords() -> list:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute("SELECT word FROM keywords") as c:
             rows = await c.fetchall()
     return [r[0].lower() for r in rows]
 
 
 async def add_keyword(word: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "INSERT OR IGNORE INTO keywords (word) VALUES (?)", (word.lower(),)
         )
@@ -656,13 +662,13 @@ async def add_keyword(word: str):
 
 
 async def remove_keyword(word: str):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute("DELETE FROM keywords WHERE word=?", (word.lower(),))
         await db.commit()
 
 
 async def is_link_warned(user_id: int) -> bool:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         async with db.execute(
             "SELECT extra_done FROM link_warned WHERE user_id=?", (user_id,)
         ) as c:
@@ -671,7 +677,7 @@ async def is_link_warned(user_id: int) -> bool:
 
 
 async def set_link_warned(user_id: int):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
         await db.execute(
             "INSERT OR REPLACE INTO link_warned (user_id, extra_done) VALUES (?,1)",
             (user_id,)
@@ -688,3 +694,21 @@ async def backup_user_to_channel(bot, user_id: int, full_name: str, username: st
         )
     except Exception:
         pass
+
+
+async def is_user_backed_up(user_id: int) -> bool:
+    """Foydalanuvchi arxiv kanalga yozilganmi"""
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
+        async with db.execute(
+            "SELECT 1 FROM users WHERE user_id=? AND backed_up=1", (user_id,)
+        ) as c:
+            return bool(await c.fetchone())
+
+
+async def mark_user_backed_up(user_id: int):
+    """Foydalanuvchini arxiv kanalga yozilgan deb belgilash"""
+    async with aiosqlite.connect(DB_FILE, timeout=30) as db:
+        await db.execute(
+            "UPDATE users SET backed_up=1 WHERE user_id=?", (user_id,)
+        )
+        await db.commit()
