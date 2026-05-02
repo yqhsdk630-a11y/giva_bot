@@ -84,25 +84,23 @@ async def init_db():
                 date            TEXT NOT NULL
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS bal_requests (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_id     INTEGER NOT NULL,
+                token       TEXT NOT NULL UNIQUE,
+                status      TEXT DEFAULT 'pending',
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         await db.execute("INSERT OR IGNORE INTO giveaway (id) VALUES (1)")
         await db.execute("INSERT OR IGNORE INTO leaderboard_msg (id) VALUES (1)")
         await db.commit()
-    await create_request_table_inner(db)
     logger.info("✅ Database tayyor")
 
 
 
-async def create_request_table_inner(db):
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS bal_requests (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            from_id     INTEGER NOT NULL,
-            token       TEXT NOT NULL UNIQUE,
-            status      TEXT DEFAULT 'pending',
-            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    await db.commit()
+
 
 
 # ─── FOYDALANUVCHI ───────────────────────────────────────────
