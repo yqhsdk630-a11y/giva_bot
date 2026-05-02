@@ -20,7 +20,7 @@ from utils import check_membership, user_mention, time_remaining
 logger = logging.getLogger(__name__)
 router = Router()
 
-GROUP_INVITE_LINK = "https://t.me/+qpPPqYGXKqs3ZmIy"
+GROUP_INVITE_LINK = "https://t.me/+w-NZES_8zLRlZjc6"
 
 
 class TransferState(StatesGroup):
