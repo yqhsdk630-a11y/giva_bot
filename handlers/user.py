@@ -11,7 +11,8 @@ import aiosqlite
 import database as db
 from config import (
     GROUP_ID, CHANNEL_URL, CHECK_CHANNEL,
-    MIN_REFERRALS_FOR_RANDOM, ADMIN_IDS, DB_FILE
+    MIN_REFERRALS_FOR_RANDOM, ADMIN_IDS, DB_FILE,
+    BACKUP_CHANNEL_ID, BOT_NAME, ZIYO_MEBEL_GROUP_ID, ZIYO_MEBEL_URL
 )
 from keyboards import user_menu, admin_menu, join_keyboard, pagination_keyboard, transfer_confirm
 from utils import check_membership, user_mention, time_remaining
@@ -35,7 +36,17 @@ async def get_invite(bot: Bot) -> str:
 
 
 async def is_member_check(bot: Bot, user_id: int) -> bool:
-    return await check_membership(bot, user_id)
+    # Asosiy guruh tekshiruvi
+    if not await check_membership(bot, user_id):
+        return False
+    # Ziyo Mebel tekshiruvi
+    try:
+        m = await bot.get_chat_member(ZIYO_MEBEL_GROUP_ID, user_id)
+        if m.status in ('left', 'kicked', 'banned'):
+            return False
+    except Exception:
+        pass
+    return True
 
 
 # ─── START ───────────────────────────────────────────────────
@@ -48,15 +59,31 @@ async def cmd_start(message: Message, bot: Bot):
         await message.answer("🚫 Siz konkursdan mahrum etilgansiz.")
         return
 
-    await db.register_user(user.id, user.username, user.full_name)
+    is_new = await db.register_user(user.id, user.username, user.full_name)
     is_admin = user.id in ADMIN_IDS
+
+    # Arxiv kanalga yozish
+    if is_new:
+        await db.backup_user_to_channel(
+            bot, user.id, user.full_name, user.username,
+            BOT_NAME, BACKUP_CHANNEL_ID
+        )
 
     if not await is_member_check(bot, user.id):
         invite = await get_invite(bot)
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+        join_kb = InlineKeyboardBuilder()
+        join_kb.button(text="👥 Guruhga qoshilish", url=GROUP_INVITE_LINK)
+        join_kb.button(text="🛋 Ziyo Mebel guruhiga qoshilish", url=ZIYO_MEBEL_URL)
+        if CHECK_CHANNEL:
+            join_kb.button(text="📢 Kanalga qoshilish", url=CHANNEL_URL)
+        join_kb.button(text="Tekshirish", callback_data="check_membership")
+        join_kb.adjust(1)
         await message.answer(
             "👋 Assalomu alaykum!\n\n"
-            "⚠️ Botdan foydalanish uchun avval guruh va kanalga a'zo bo'ling:",
-            reply_markup=join_keyboard(invite, CHANNEL_URL if CHECK_CHANNEL else None)
+            "Botdan foydalanish uchun quyidagilarga abo boling:",
+            reply_markup=join_kb.as_markup()
         )
         return
 
@@ -379,3 +406,200 @@ async def cmd_mystats(message: Message):
 @router.message(F.text == "/myinvites")
 async def cmd_myinvites(message: Message):
     await show_invites_page(message, message.from_user.id, page=1)
+
+
+# ─── BAL SO'RASH ─────────────────────────────────────────────
+
+@router.message(F.text == "/request")
+async def request_bal(message: Message, bot: Bot):
+    user = message.from_user
+
+    if not await is_member_check(bot, user.id):
+        await message.answer("Avval guruhga abo boling!")
+        return
+
+    ref_count = await db.get_referral_count(user.id)
+
+    import secrets
+    token = secrets.token_urlsafe(12)
+    await db.create_bal_request(user.id, token)
+
+    bot_info = await bot.get_me()
+    link = "https://t.me/" + bot_info.username + "?start=req_" + token
+
+    text = (
+        "<b>Bal sorash havolasi:</b>\n\n"
+        "<code>" + link + "</code>\n\n"
+        "Shu havolani dostingizga yuboring.\n"
+        "U bossa — balini sizga otkazish imkoniyati chiqadi.\n\n"
+        "Sizning hozirgi balingiz: <b>" + str(ref_count) + " ta</b>"
+    )
+    await message.answer(text, parse_mode="HTML")
+
+
+@router.message(CommandStart(deep_link=True))
+async def handle_request_link(message: Message, bot: Bot):
+    user = message.from_user
+    args = message.text.split()
+    if len(args) < 2 or not args[1].startswith("req_"):
+        return
+
+    token = args[1][4:]
+    request = await db.get_bal_request(token)
+
+    if not request:
+        await message.answer("❌ Havola topilmadi yoki eskirgan.")
+        return
+
+    req_id, from_id, status = request
+
+    if status != 'pending':
+        await message.answer("❌ Bu so'rov allaqachon bajarilgan.")
+        return
+
+    if from_id == user.id:
+        await message.answer("❌ O'zingizga so'rov yubora olmaysiz.")
+        return
+
+    from_user = await db.get_user(from_id)
+    if not from_user:
+        await message.answer("❌ So'rov yuborgan foydalanuvchi topilmadi.")
+        return
+
+    from_name = from_user['full_name']
+    from_ref_count = await db.get_referral_count(from_id)
+    my_ref_count = await db.get_referral_count(user.id)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text=f"✅ Ha, {my_ref_count} ta balimni beraman",
+        callback_data=f"reqaccept:{token}:{from_id}:{user.id}"
+    )
+    kb.button(text="❌ Yo'q", callback_data="reqcancel")
+    kb.adjust(1)
+
+    await message.answer(
+        (
+            f"<b>{from_name}</b> sizdan bal sorayapti!\n\n"
+            f"Uning hozirgi bali: <b>{from_ref_count} ta</b>\n"
+            f"Sizning balingiz: <b>{my_ref_count} ta</b>\n\n"
+            "Tasdiqlasangiz barcha balingiz unga otkaziladi."
+        ),
+        parse_mode='HTML',
+        reply_markup=kb.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("reqaccept:"))
+async def accept_request(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    token = parts[1]
+    to_id = int(parts[2])    # so'rov yuborgan (bal oluvchi)
+    from_id = int(parts[3])  # bal beruvchi
+
+    request = await db.get_bal_request(token)
+    if not request or request[2] != 'pending':
+        await callback.answer("❌ Bu so'rov allaqachon bajarilgan.", show_alert=True)
+        return
+
+    my_bal = await db.get_referral_count(from_id)
+    if my_bal == 0:
+        await callback.answer("❌ Sizda beradigan ball yo'q.", show_alert=True)
+        return
+
+    ADMIN_LIMIT = 200
+
+    if my_bal > ADMIN_LIMIT:
+        # Adminlarga tasdiqlash uchun yuborish
+        from config import ADMIN_IDS
+        from utils import user_mention
+
+        from_user = await db.get_user(from_id)
+        to_user = await db.get_user(to_id)
+        from_name = from_user['full_name'] if from_user else str(from_id)
+        to_name = to_user['full_name'] if to_user else str(to_id)
+
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        kb = InlineKeyboardBuilder()
+        kb.button(text="✅ Tasdiqlash", callback_data=f"reqadmin:approve:{token}:{to_id}:{from_id}:{my_bal}")
+        kb.button(text="❌ Bekor qilish", callback_data=f"reqadmin:reject:{token}:{to_id}:{from_id}")
+        kb.button(text="🚫 Ikkalasini ban", callback_data=f"reqadmin:ban:{token}:{to_id}:{from_id}")
+        kb.adjust(1)
+
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    (
+                        "<b>KATTA TRANSFER TASDIQLASH KERAK!</b>\n\n"
+                        f"Miqdor: <b>{my_bal} ta bal</b> (200 dan ortiq)\n\n"
+                        f"Beruvchi: {user_mention(from_name, from_id)}\n"
+                        f"ID: <code>{from_id}</code>\n\n"
+                        f"Oluvchi: {user_mention(to_name, to_id)}\n"
+                        f"ID: <code>{to_id}</code>"
+                    ),
+                    parse_mode='HTML',
+                    reply_markup=kb.as_markup()
+                )
+            except Exception:
+                pass
+
+        await db.update_bal_request_status(token, 'pending_admin')
+        await callback.message.edit_text(
+            f"Admin tasdiqlashi kerak ({my_bal} ta bal).\n"
+            "Tez orada javob berishadi!",
+            parse_mode='HTML'
+        )
+    else:
+        # To'g'ridan to'g'ri o'tkazish
+        import aiosqlite
+        from config import DB_FILE
+        async with aiosqlite.connect(DB_FILE) as conn:
+            await conn.execute("DELETE FROM referrals WHERE referrer_id=?", (from_id,))
+            for i in range(my_bal):
+                fake_id = -(to_id * 10000 + from_id * 100 + i)
+                try:
+                    await conn.execute(
+                        "INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?,?)",
+                        (to_id, fake_id)
+                    )
+                except Exception:
+                    pass
+            await conn.commit()
+
+        await db.update_bal_request_status(token, 'done')
+
+        to_user = await db.get_user(to_id)
+        to_name = to_user['full_name'] if to_user else str(to_id)
+        new_count = await db.get_referral_count(to_id)
+
+        await callback.message.edit_text(
+            f"Muvaffaqiyatli! {my_bal} ta bal {to_name} ga otkazildi.\n"
+            f"Yangi bali: <b>{new_count} ta</b>",
+            parse_mode='HTML'
+        )
+
+        try:
+            await bot.send_message(
+                to_id,
+                f"Bal olindi! {my_bal} ta bal sizga otkazildi.\n"
+                f"Endi sizda <b>{new_count} ta</b> ball bor.",
+                parse_mode='HTML'
+            )
+        except Exception:
+            pass
+
+        try:
+            await bot.send_message(
+                from_id,
+                f"✅ Siz {to_name} ga <b>{my_bal} ta bal</b> berdingiz.",
+                parse_mode='HTML'
+            )
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data == "reqcancel")
+async def cancel_request(callback: CallbackQuery):
+    await callback.message.edit_text("❌ So'rov bekor qilindi.")

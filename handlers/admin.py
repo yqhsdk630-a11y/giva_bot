@@ -984,6 +984,98 @@ async def retention_cmd(message: Message, bot: Bot):
             f"❌ Chiqib ketdi: <b>{left_count} ta</b>\n"
             f"✅ Hali guruhda: <b>{still_in} ta</b>\n\n"
             f"{emoji} Saqlanish: <b>{percent}%</b>\n\n"
-            f"{'🟢 Yaxshi natija!' if percent >= 70 else '🟡 Ortacha' if percent >= 40 else '🔴 Past — nakrutka bolishi mumkin!'}",
+            ("🟢 Yaxshi natija!" if percent >= 70 else ("🟡 Ortacha" if percent >= 40 else "🔴 Past - nakrutka bolishi mumkin!")),
             parse_mode='HTML'
         )
+
+
+# ─── BAL SO'RASH — ADMIN TASDIQLASH ─────────────────────────
+
+@router.callback_query(F.data.startswith("reqadmin:"))
+async def admin_request_action(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    action = parts[1]
+    token = parts[2]
+    to_id = int(parts[3])
+    from_id = int(parts[4])
+    bal = int(parts[5]) if len(parts) > 5 else 0
+
+    import aiosqlite
+    from config import DB_FILE
+
+    if action == "approve":
+        # O'tkazish
+        async with aiosqlite.connect(DB_FILE) as conn:
+            await conn.execute("DELETE FROM referrals WHERE referrer_id=?", (from_id,))
+            for i in range(bal):
+                fake_id = -(to_id * 10000 + from_id * 100 + i)
+                try:
+                    await conn.execute(
+                        "INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?,?)",
+                        (to_id, fake_id)
+                    )
+                except Exception:
+                    pass
+            await conn.commit()
+
+        await db.update_bal_request_status(token, 'done')
+        new_count = await db.get_referral_count(to_id)
+
+        to_user = await db.get_user(to_id)
+        to_name = to_user['full_name'] if to_user else str(to_id)
+
+        await callback.message.edit_text(
+            f"✅ <b>Tasdiqlandi!</b>\n"
+            f"💰 {bal} ta bal → {to_name}\n"
+            f"Yangi bali: {new_count} ta"
+        )
+
+        try:
+            await bot.send_message(
+                to_id,
+                f"🎉 Admin tasdiqladi!\n"
+                f"💰 <b>{bal} ta bal</b> sizga o'tkazildi!\n"
+                f"Endi sizda <b>{new_count} ta</b> ball bor. 🏆",
+                parse_mode='HTML'
+            )
+        except Exception:
+            pass
+
+        try:
+            await bot.send_message(
+                from_id,
+                f"✅ Admin tasdiqladi — balingiz o'tkazildi.",
+            )
+        except Exception:
+            pass
+
+    elif action == "reject":
+        await db.update_bal_request_status(token, 'rejected')
+        await callback.message.edit_text("❌ Transfer bekor qilindi.")
+
+        try:
+            await bot.send_message(from_id, "❌ Admin transfer so'rovingizni rad etdi.")
+        except Exception:
+            pass
+        try:
+            await bot.send_message(to_id, "❌ Transfer admin tomonidan rad etildi.")
+        except Exception:
+            pass
+
+    elif action == "ban":
+        await db.blacklist_user(to_id, True)
+        await db.blacklist_user(from_id, True)
+        await db.update_bal_request_status(token, 'banned')
+
+        await callback.message.edit_text(
+            f"🚫 Ikkalasi ban qilindi!\n"
+            f"ID 1: <code>{from_id}</code>\n"
+            f"ID 2: <code>{to_id}</code>",
+            parse_mode='HTML'
+        )
+
+        for uid in [from_id, to_id]:
+            try:
+                await bot.send_message(uid, "🚫 Siz konkursdan mahrum etildingiz.")
+            except Exception:
+                pass
